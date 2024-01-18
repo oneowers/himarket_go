@@ -5,47 +5,83 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gorilla/mux"  // Import the mux package
+	"github.com/gorilla/mux"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/rs/cors"
 	"encoding/json"
 	"strconv"
 	"errors"
 	"regexp"
-
 )
 
-// Your existing code...
-
-func handleRequests() {
-	r := mux.NewRouter()
-
-	// Endpoint for the list of products
-	r.HandleFunc("/api/products/", getAllProducts).Methods("GET")
-
-	// Endpoint for detailed information about a specific product
-	r.HandleFunc("/api/product/{id}/", getProductDetail).Methods("GET")
-
-	http.Handle("/", r)
-	http.ListenAndServe(":8080", nil)
-}
-// Product struct to represent the data structure
-// Product struct to represent the data structure
 type Product struct {
 	ID           int    `json:"id"`
 	Title        string `json:"title"`
 	VariantTitle string `json:"variant-title"`
 	Price        string `json:"price"`
 	Image        string `json:"image"`
+	Image1       string `json:"image1"` // Add the Image1 field
 	Link         string `json:"link"`
 }
-
-
 var products []Product
 
-func scrapeBrostore() {
+var r = mux.NewRouter() // Initialize the router outside the handleRequests function
+
+func handleRequests() {
+	// Endpoint for the list of products
+	r.HandleFunc("/api/products/", getAllProducts).Methods("GET")
+
+	// Endpoint for detailed information about a specific product
+	r.HandleFunc("/api/product/{id}/", getProductDetail).Methods("GET")
+
+	// New endpoint for parsing a specific URL
+	r.HandleFunc("/api/parse/", parseURL).Methods("POST")
+
+	// Enable CORS middleware
+	c := cors.AllowAll()
+
+	// Wrap the existing router with CORS middleware
+	http.Handle("/", c.Handler(r))
+
+	// Start the server
+	http.ListenAndServe(":8080", nil)
+}
+
+func parseURL(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+
+    var requestBody struct {
+        URL string `json:"url"`
+    }
+
+    decoder := json.NewDecoder(r.Body)
+    if err := decoder.Decode(&requestBody); err != nil {
+        http.Error(w, "Error decoding request body", http.StatusBadRequest)
+        return
+    }
+
+    // Reset the products slice before scraping new data
+    products = nil
+
+    // Print the URL from the request body
+    fmt.Println("[POST]: url: " + requestBody.URL)
+
+    // Scrape data from the provided URL
+    scrapeBrostore(w, requestBody.URL)
+
+    // Return the parsed data as JSON
+    jsonData, err := json.Marshal(products)
+    if err != nil {
+        http.Error(w, "Error converting to JSON", http.StatusInternalServerError)
+        return
+    }
+    w.Write(jsonData)
+}
+
+func scrapeBrostore(w http.ResponseWriter, url string) {
 	// Set a user-agent to mimic a browser request
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "https://brostore.uz/collections/noutbuki", nil)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		fmt.Println("Error creating request:", err)
 		return
@@ -78,8 +114,11 @@ func scrapeBrostore() {
 		// Extract information from each product-card
 		title := strings.TrimSpace(s.Find(".product-card-title").Text())
 		price := strings.TrimSpace(s.Find(".amount").Text())
-		imageURL, _ := s.Find(".product-secondary-image").Attr("data-srcset")
+		imageURL, _ := s.Find(".product-primary-image").Attr("data-srcset")
 		imageURL = "https:" + strings.Fields(imageURL)[0]
+
+		imageURL1, _ := s.Find(".product-secondary-image").Attr("data-srcset")
+		imageURL1 = "https:" + strings.Fields(imageURL1)[0]  // Fix this line
 
 		// Find the parent container that contains the link
 		parent := s.Find(".product-card-title").Parent()
@@ -94,10 +133,11 @@ func scrapeBrostore() {
 
 			// Save information to the products slice
 			product := Product{
-				ID:    i + 1, // Add an ID as a placeholder; you may need to modify this based on your requirements
+				ID:    i + 1,
 				Title: title,
 				Price: price,
 				Image: imageURL,
+				Image1: imageURL1,
 				Link:  link,
 			}
 			products = append(products, product)
@@ -105,11 +145,8 @@ func scrapeBrostore() {
 			fmt.Println("Link does not exist")
 		}
 	})
+
 }
-
-
-
-
 
 func scrapeProductInfo(doc *goquery.Document) (title, variantTitle, price string, err error) {
 	// Extract title
@@ -142,11 +179,6 @@ func cleanUpPrice(rawPrice string) (string, error) {
 
 	return "", errors.New("No valid price found")
 }
-
-
-// ... (your existing functions)
-
-// ... (your existing code)
 
 func scrapeBrostoreDetail(id int, link string) (*Product, error) {
     // Create the full URL for the product detail page
@@ -211,15 +243,6 @@ func scrapeBrostoreDetail(id int, link string) (*Product, error) {
     return detailedProduct, nil
 }
 
-// ... (your existing code)
-
-
-
-
-
-
-
-
 func getAllProducts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	jsonData, err := json.Marshal(products)
@@ -233,24 +256,20 @@ func getAllProducts(w http.ResponseWriter, r *http.Request) {
 func getProductDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Get the product ID from the URL parameters
 	params := mux.Vars(r)
 	id := params["id"]
 
-	// Convert the ID to an integer
 	productID, err := strconv.Atoi(id)
 	if err != nil {
 		http.Error(w, "Invalid product ID", http.StatusBadRequest)
 		return
 	}
 
-	// Ensure that the product ID is within the valid range
 	if productID < 1 || productID > len(products) {
 		http.Error(w, "Product ID out of range", http.StatusNotFound)
 		return
 	}
 
-	// Get detailed information for the specified product ID and link
 	link := products[productID-1].Link
 	detailedProduct, err := scrapeBrostoreDetail(productID, link)
 	if err != nil {
@@ -258,7 +277,6 @@ func getProductDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert detailed product information to JSON
 	jsonData, err := json.Marshal(detailedProduct)
 	if err != nil {
 		http.Error(w, "Error converting to JSON", http.StatusInternalServerError)
@@ -267,9 +285,11 @@ func getProductDetail(w http.ResponseWriter, r *http.Request) {
 	w.Write(jsonData)
 }
 
-
-
 func main() {
-	scrapeBrostore()
+	// Initialize the products slice
+	products = make([]Product, 0)
+
+	// Start the server
 	handleRequests()
 }
+
