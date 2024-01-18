@@ -1,4 +1,4 @@
-module github.com/Rokki-Khazratov/golang-scrapper
+module api
 
 go 1.21.6
 
