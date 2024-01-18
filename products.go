@@ -1,13 +1,14 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	// "html/template"
 	"net/http"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"encoding/json"
+
 )
 
 // Product struct to represent the data structure
@@ -16,6 +17,8 @@ type Product struct {
 	Price string `json:"price"`
 	Image string `json:"image"`
 }
+
+var products []Product
 
 func scrapeBrostore() {
 	url := "https://brostore.uz/collections/noutbuki"
@@ -64,43 +67,37 @@ func scrapeBrostore() {
 		fmt.Printf("Image URL: %s\n", imageURL)
 		fmt.Println(strings.Repeat("-", 30))
 
-		// Save information to go_data.json
+		// Save information to the products slice
 		product := Product{
 			Title: title,
 			Price: price,
 			Image: imageURL,
 		}
-		saveToJSON(product)
+		products = append(products, product)
 	})
 }
 
-func saveToJSON(product Product) {
-	// Load existing data from go_data.json if it exists
-	var existingData []Product
-	data, err := ioutil.ReadFile("go_data.json")
-	if err == nil {
-		if err := json.Unmarshal(data, &existingData); err != nil {
-			fmt.Println("Error decoding JSON:", err)
-			return
-		}
-	}
+func handleRequests() {
+	http.HandleFunc("/", homePage)
+	http.ListenAndServe(":8080", nil)
+}
 
-	// Append the new data
-	existingData = append(existingData, product)
+func homePage(w http.ResponseWriter, r *http.Request) {
+	// Устанавливаем заголовок Content-Type для ответа в формате JSON
+	w.Header().Set("Content-Type", "application/json")
 
-	// Save the combined data back to go_data.json
-	jsonData, err := json.MarshalIndent(existingData, "", "  ")
+	// Преобразуем данные в формат JSON
+	jsonData, err := json.Marshal(products)
 	if err != nil {
-		fmt.Println("Error encoding JSON:", err)
+		http.Error(w, "Error converting to JSON", http.StatusInternalServerError)
 		return
 	}
 
-	err = ioutil.WriteFile("go_data.json", jsonData, 0644)
-	if err != nil {
-		fmt.Println("Error writing to go_data.json:", err)
-	}
+	// Отправляем данные в ответе
+	w.Write(jsonData)
 }
 
 func main() {
 	scrapeBrostore()
+	handleRequests()
 }
