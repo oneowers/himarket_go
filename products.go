@@ -2,31 +2,50 @@ package main
 
 import (
 	"fmt"
-	// "html/template"
 	"net/http"
 	"strings"
 
+	"github.com/gorilla/mux"  // Import the mux package
 	"github.com/PuerkitoBio/goquery"
 	"encoding/json"
+	"strconv"
+	"errors"
+	"regexp"
 
 )
 
+// Your existing code...
+
+func handleRequests() {
+	r := mux.NewRouter()
+
+	// Endpoint for the list of products
+	r.HandleFunc("/api/products/", getAllProducts).Methods("GET")
+
+	// Endpoint for detailed information about a specific product
+	r.HandleFunc("/api/product/{id}/", getProductDetail).Methods("GET")
+
+	http.Handle("/", r)
+	http.ListenAndServe(":8080", nil)
+}
+// Product struct to represent the data structure
 // Product struct to represent the data structure
 type Product struct {
-	Title string `json:"title"`
-	Price string `json:"price"`
-	Image string `json:"image"`
-	Link  string `json:"link"`
+	ID           int    `json:"id"`
+	Title        string `json:"title"`
+	VariantTitle string `json:"variant-title"`
+	Price        string `json:"price"`
+	Image        string `json:"image"`
+	Link         string `json:"link"`
 }
+
 
 var products []Product
 
 func scrapeBrostore() {
-	url := "https://brostore.uz/collections/noutbuki"
-
 	// Set a user-agent to mimic a browser request
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", "https://brostore.uz/collections/noutbuki", nil)
 	if err != nil {
 		fmt.Println("Error creating request:", err)
 		return
@@ -61,20 +80,21 @@ func scrapeBrostore() {
 		price := strings.TrimSpace(s.Find(".amount").Text())
 		imageURL, _ := s.Find(".product-secondary-image").Attr("data-srcset")
 		imageURL = "https:" + strings.Fields(imageURL)[0]
-	
+
 		// Find the parent container that contains the link
 		parent := s.Find(".product-card-title").Parent()
-	
+
 		// Find the link within the parent container
 		linkSelection := parent.Find("a").First()
 		link, exists := linkSelection.Attr("href")
-	
+
 		// Check if the link exists
 		if exists {
 			link = "https://brostore.uz" + link
-	
+
 			// Save information to the products slice
 			product := Product{
+				ID:    i + 1, // Add an ID as a placeholder; you may need to modify this based on your requirements
 				Title: title,
 				Price: price,
 				Image: imageURL,
@@ -85,39 +105,169 @@ func scrapeBrostore() {
 			fmt.Println("Link does not exist")
 		}
 	})
-	
-	
-
-
-
-
-	
-	
-	
-	
-	
-	
 }
 
-func handleRequests() {
-	http.HandleFunc("/api/products/", homePage)
-	http.ListenAndServe(":8080", nil)
+
+
+
+
+func scrapeProductInfo(doc *goquery.Document) (title, variantTitle, price string, err error) {
+	// Extract title
+	title = strings.TrimSpace(doc.Find(".product-title").Text())
+
+	// Extract variant title
+	variantTitle = strings.TrimSpace(doc.Find(".product-variant-title").Text())
+
+	// Extract price
+	price = doc.Find(".amount").Text()
+
+	// Use a regular expression to capture the desired part of the price
+	re := regexp.MustCompile(`(\d{2}\s\d{3}\s\d{3}\sсум)`)
+	matches := re.FindStringSubmatch(price)
+	if len(matches) > 1 {
+		price = matches[1]
+	}
+
+	return title, variantTitle, price, nil
 }
 
-func homePage(w http.ResponseWriter, r *http.Request) {
-	// Устанавливаем заголовок Content-Type для ответа в формате JSON
+func cleanUpPrice(rawPrice string) (string, error) {
+	// Split the raw price by whitespace
+	priceParts := strings.Fields(rawPrice)
+
+	// Take the first part as the cleaned-up price
+	if len(priceParts) > 0 {
+		return priceParts[0], nil
+	}
+
+	return "", errors.New("No valid price found")
+}
+
+
+// ... (your existing functions)
+
+// ... (your existing code)
+
+func scrapeBrostoreDetail(id int, link string) (*Product, error) {
+    // Create the full URL for the product detail page
+    fullURL := link
+    fmt.Printf(link)
+
+    // Set a user-agent to mimic a browser request
+    client := &http.Client{}
+    req, err := http.NewRequest("GET", fullURL, nil)
+    if err != nil {
+        return nil, fmt.Errorf("Error creating request: %v", err)
+    }
+    req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
+
+    // Perform the request
+    resp, err := client.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("Error making request: %v", err)
+    }
+    defer resp.Body.Close()
+
+    // Check if the request was successful (status code 200)
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("Failed to retrieve data. Status Code: %d", resp.StatusCode)
+    }
+
+    // Use goquery to parse the HTML response
+    doc, err := goquery.NewDocumentFromReader(resp.Body)
+    if err != nil {
+        return nil, fmt.Errorf("Error parsing HTML: %v", err)
+    }
+
+    // Extract detailed information from the product detail page using the scrapeProductInfo function
+    title, variantTitle, price, err := scrapeProductInfo(doc)
+    if err != nil {
+        return nil, fmt.Errorf("Error extracting detailed information: %v", err)
+    }
+
+    imageURL, _ := doc.Find(".product-secondary-image").Attr("data-srcset")
+    detailedInfo := struct {
+        Title        string `json:"title"`
+        VariantTitle string `json:"variant-title"`
+        Price        string `json:"price"`
+        Image        string `json:"image"`
+    }{
+        Title:        title,
+        VariantTitle: variantTitle,
+        Price:        price,
+        Image:        "https:" + strings.Fields(strings.TrimSpace(imageURL))[0],
+    }
+
+    // Create a new Product instance with the detailed information and the provided ID
+    detailedProduct := &Product{
+        ID:           id,
+        Title:        detailedInfo.Title,
+        VariantTitle: detailedInfo.VariantTitle,
+        Price:        detailedInfo.Price,
+        Image:        detailedInfo.Image,
+        Link:         link,
+    }
+
+    return detailedProduct, nil
+}
+
+// ... (your existing code)
+
+
+
+
+
+
+
+
+func getAllProducts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-
-	// Преобразуем данные в формат JSON
 	jsonData, err := json.Marshal(products)
 	if err != nil {
 		http.Error(w, "Error converting to JSON", http.StatusInternalServerError)
 		return
 	}
-
-	// Отправляем данные в ответе
 	w.Write(jsonData)
 }
+
+func getProductDetail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Get the product ID from the URL parameters
+	params := mux.Vars(r)
+	id := params["id"]
+
+	// Convert the ID to an integer
+	productID, err := strconv.Atoi(id)
+	if err != nil {
+		http.Error(w, "Invalid product ID", http.StatusBadRequest)
+		return
+	}
+
+	// Ensure that the product ID is within the valid range
+	if productID < 1 || productID > len(products) {
+		http.Error(w, "Product ID out of range", http.StatusNotFound)
+		return
+	}
+
+	// Get detailed information for the specified product ID and link
+	link := products[productID-1].Link
+	detailedProduct, err := scrapeBrostoreDetail(productID, link)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error getting product detail: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert detailed product information to JSON
+	jsonData, err := json.Marshal(detailedProduct)
+	if err != nil {
+		http.Error(w, "Error converting to JSON", http.StatusInternalServerError)
+		return
+	}
+	w.Write(jsonData)
+}
+
+
 
 func main() {
 	scrapeBrostore()
