@@ -9,7 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
-    "github.com/Rokki-Khazratov/golang-scrapper/api/data-scrappers/scrapper"
+    "github.com/Rokki-Khazratov/golang-scrapper/data-scrappers/scrapper"
 
 )
 
