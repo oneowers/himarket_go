@@ -1,51 +1,34 @@
-package main
+// scrapper/scrapper.go
+package scrapper
 
 import (
 	"fmt"
 	"net/http"
 	"strings"
-
-	"github.com/gorilla/mux"  // Import the mux package
 	"github.com/PuerkitoBio/goquery"
-	"encoding/json"
-	"strconv"
+	"encoding/json"  // Add this line for json
+	"github.com/gorilla/mux"  // Add this line for mux
+	"strconv"  // Add this line for strconv
 	"errors"
 	"regexp"
-
 )
 
-// Your existing code...
-
-func handleRequests() {
-	r := mux.NewRouter()
-
-	// Endpoint for the list of products
-	r.HandleFunc("/api/products/", getAllProducts).Methods("GET")
-
-	// Endpoint for detailed information about a specific product
-	r.HandleFunc("/api/product/{id}/", getProductDetail).Methods("GET")
-
-	http.Handle("/", r)
-	http.ListenAndServe(":8080", nil)
-}
-// Product struct to represent the data structure
-// Product struct to represent the data structure
 type Product struct {
 	ID           int    `json:"id"`
 	Title        string `json:"title"`
 	VariantTitle string `json:"variant-title"`
 	Price        string `json:"price"`
 	Image        string `json:"image"`
+	Image1       string `json:"image1"` 
 	Link         string `json:"link"`
 }
-
 
 var products []Product
 
 func scrapeBrostore() {
 	// Set a user-agent to mimic a browser request
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "https://brostore.uz/collections/noutbuki", nil)
+	req, err := http.NewRequest("GET", "http://brostore.uz/collections/noutbuki", nil)
 	if err != nil {
 		fmt.Println("Error creating request:", err)
 		return
@@ -78,8 +61,11 @@ func scrapeBrostore() {
 		// Extract information from each product-card
 		title := strings.TrimSpace(s.Find(".product-card-title").Text())
 		price := strings.TrimSpace(s.Find(".amount").Text())
-		imageURL, _ := s.Find(".product-secondary-image").Attr("data-srcset")
+		imageURL, _ := s.Find(".product-primary-image").Attr("data-srcset")
 		imageURL = "https:" + strings.Fields(imageURL)[0]
+
+		imageURL1, _ := s.Find(".product-secondary-image").Attr("data-srcset")
+		imageURL1 = "https:" + strings.Fields(imageURL1)[0]  // Fix this line
 
 		// Find the parent container that contains the link
 		parent := s.Find(".product-card-title").Parent()
@@ -98,6 +84,7 @@ func scrapeBrostore() {
 				Title: title,
 				Price: price,
 				Image: imageURL,
+				Image1: imageURL1,
 				Link:  link,
 			}
 			products = append(products, product)
@@ -105,6 +92,7 @@ func scrapeBrostore() {
 			fmt.Println("Link does not exist")
 		}
 	})
+
 }
 
 
@@ -211,9 +199,6 @@ func scrapeBrostoreDetail(id int, link string) (*Product, error) {
     return detailedProduct, nil
 }
 
-// ... (your existing code)
-
-
 
 
 
@@ -268,8 +253,3 @@ func getProductDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 
-
-func main() {
-	scrapeBrostore()
-	handleRequests()
-}
