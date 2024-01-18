@@ -16,6 +16,7 @@ type Product struct {
 	Title string `json:"title"`
 	Price string `json:"price"`
 	Image string `json:"image"`
+	Link  string `json:"link"`
 }
 
 var products []Product
@@ -60,25 +61,46 @@ func scrapeBrostore() {
 		price := strings.TrimSpace(s.Find(".amount").Text())
 		imageURL, _ := s.Find(".product-secondary-image").Attr("data-srcset")
 		imageURL = "https:" + strings.Fields(imageURL)[0]
-
-		// Print the information
-		fmt.Printf("Title: %s\n", title)
-		fmt.Printf("Price: %s\n", price)
-		fmt.Printf("Image URL: %s\n", imageURL)
-		fmt.Println(strings.Repeat("-", 30))
-
-		// Save information to the products slice
-		product := Product{
-			Title: title,
-			Price: price,
-			Image: imageURL,
+	
+		// Find the parent container that contains the link
+		parent := s.Find(".product-card-title").Parent()
+	
+		// Find the link within the parent container
+		linkSelection := parent.Find("a").First()
+		link, exists := linkSelection.Attr("href")
+	
+		// Check if the link exists
+		if exists {
+			link = "https://brostore.uz" + link
+	
+			// Save information to the products slice
+			product := Product{
+				Title: title,
+				Price: price,
+				Image: imageURL,
+				Link:  link,
+			}
+			products = append(products, product)
+		} else {
+			fmt.Println("Link does not exist")
 		}
-		products = append(products, product)
 	})
+	
+	
+
+
+
+
+	
+	
+	
+	
+	
+	
 }
 
 func handleRequests() {
-	http.HandleFunc("/", homePage)
+	http.HandleFunc("/api/products/", homePage)
 	http.ListenAndServe(":8080", nil)
 }
 
